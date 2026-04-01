@@ -1,12 +1,36 @@
-<html lang="en">
+<!DOCTYPE html>
+<html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title></title>
-    <script type="module" crossorigin src="/assets/index-Bt_H0pGZ.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-BeB5p9VS.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0d0f1a" />
+    <meta name="description" content="Laboratório de análise histórica do Bitcoin com dados em tempo real e eventos históricos curados." />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="BTC Lab" />
+    <!-- Apple Touch Icons -->
+    <link rel="apple-touch-icon" href="/assets/generated/btc-icon-192.dim_192x192.png" />
+    <link rel="apple-touch-icon" sizes="192x192" href="/assets/generated/btc-icon-192.dim_192x192.png" />
+    <link rel="apple-touch-icon" sizes="512x512" href="/assets/generated/btc-icon-512.dim_512x512.png" />
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/manifest.json" />
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="192x192" href="/assets/generated/btc-icon-192.dim_192x192.png" />
+    <title>Bitcoin Analysis Lab</title>
+    <script type="module" crossorigin src="/assets/index-CtvGeFD8.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-CmrfvGvO.css">
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js', { scope: '/' })
+            .then(() => console.log('[PWA] Service Worker registrado'))
+            .catch((err) => console.warn('[PWA] SW falhou:', err));
+        });
+      }
+    </script>
   </body>
 </html>

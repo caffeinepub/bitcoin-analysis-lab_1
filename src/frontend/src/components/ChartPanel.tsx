@@ -1,5 +1,13 @@
-import { Activity, Loader2, TrendingDown, TrendingUp } from "lucide-react";
+import {
+  Activity,
+  Loader2,
+  Star,
+  TrendingDown,
+  TrendingUp,
+  X,
+} from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { HistoricalEvent } from "../backend";
 import {
   useBTCCandles,
   useHistoricalEvents,
@@ -28,6 +36,8 @@ const EVENT_COLORS: Record<string, string> = {
 // Constant — not reactive
 const PAD = { top: 16, right: 64, bottom: 36, left: 8 };
 
+type ExtendedMarker = ChartMarker & { event?: HistoricalEvent };
+
 function nsToMs(ns: bigint): number {
   return Number(ns) / 1_000_000;
 }
@@ -45,10 +55,23 @@ function formatDate(ts: number): string {
   });
 }
 
+function formatEventDate(ns: bigint): string {
+  return new Date(nsToMs(ns)).toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
 interface TooltipData {
   x: number;
   y: number;
   candle: OHLCVCandle;
+}
+
+interface ZoomRange {
+  start: number;
+  end: number;
 }
 
 interface Props {
@@ -66,6 +89,10 @@ export function ChartPanel({
   const svgRef = useRef<SVGSVGElement>(null);
   const [dims, setDims] = useState({ w: 800, h: 420 });
   const [tooltip, setTooltip] = useState<TooltipData | null>(null);
+  const [zoomRange, setZoomRange] = useState<ZoomRange | null>(null);
+  const [focusedEvent, setFocusedEvent] = useState<HistoricalEvent | null>(
+    null,
+  );
 
   const {
     data: candles,
@@ -99,7 +126,13 @@ export function ChartPanel({
   const chartW = dims.w - PAD.left - PAD.right;
   const chartH = dims.h - PAD.top - PAD.bottom;
 
-  const chartData = candles && candles.length > 0 ? candles : [];
+  const fullChartData = candles && candles.length > 0 ? candles : [];
+  const totalN = fullChartData.length;
+
+  // Apply zoom slice
+  const chartData = zoomRange
+    ? fullChartData.slice(zoomRange.start, zoomRange.end)
+    : fullChartData;
   const n = chartData.length;
 
   const priceMin = n > 0 ? Math.min(...chartData.map((c) => c.low)) * 0.997 : 0;
@@ -118,31 +151,39 @@ export function ChartPanel({
 
   const candleW = Math.max(1, (chartW / Math.max(n, 1)) * 0.7);
 
-  // Build event markers
-  const markers: ChartMarker[] = [];
-  if (events && n > 0) {
+  // Build event markers (always based on full data for index mapping)
+  const allMarkers: ExtendedMarker[] = [];
+  if (events && totalN > 0) {
     for (const ev of events) {
       const evMs = nsToMs(ev.timestamp);
       let bestIdx = 0;
       let bestDiff = Number.POSITIVE_INFINITY;
-      for (let i = 0; i < n; i++) {
-        const diff = Math.abs(chartData[i].timestamp - evMs);
+      for (let i = 0; i < totalN; i++) {
+        const diff = Math.abs(fullChartData[i].timestamp - evMs);
         if (diff < bestDiff) {
           bestDiff = diff;
           bestIdx = i;
         }
       }
       if (bestDiff < 10 * 24 * 3600 * 1000) {
-        markers.push({
+        allMarkers.push({
           index: bestIdx,
-          time: chartData[bestIdx].time,
+          time: fullChartData[bestIdx].time,
           color: EVENT_COLORS[ev.eventType as string] ?? C.gold,
           label: ev.title.slice(0, 18),
           eventType: ev.eventType as string,
+          event: ev,
         });
       }
     }
   }
+
+  // Filter markers to visible range when zoomed
+  const markers: ExtendedMarker[] = zoomRange
+    ? allMarkers
+        .filter((m) => m.index >= zoomRange.start && m.index < zoomRange.end)
+        .map((m) => ({ ...m, index: m.index - zoomRange.start }))
+    : allMarkers;
 
   // Major move rectangles
   const moveRects: { x1: number; x2: number; isUp: boolean; key: string }[] =
@@ -217,11 +258,34 @@ export function ChartPanel({
     [n, chartW, xScale, yScale, chartData],
   );
 
-  const lastCandle = chartData[n - 1];
-  const prevCandle = chartData[n - 2];
+  const handleMarkerClick = useCallback(
+    (marker: ExtendedMarker, globalIdx: number) => {
+      const start = Math.max(0, globalIdx - 35);
+      const end = Math.min(totalN, globalIdx + 65);
+      setZoomRange({ start, end });
+      if (marker.event) setFocusedEvent(marker.event);
+    },
+    [totalN],
+  );
+
+  const handleResetZoom = useCallback(() => {
+    setZoomRange(null);
+    setFocusedEvent(null);
+    setTooltip(null);
+  }, []);
+
+  // Stats strip uses FULL data last candle
+  const fullLastCandle = fullChartData[totalN - 1];
+  const fullPrevCandle = fullChartData[totalN - 2];
   const priceChange =
-    lastCandle && prevCandle ? lastCandle.close - prevCandle.close : 0;
-  const pricePct = prevCandle ? (priceChange / prevCandle.close) * 100 : 0;
+    fullLastCandle && fullPrevCandle
+      ? fullLastCandle.close - fullPrevCandle.close
+      : 0;
+  const pricePct = fullPrevCandle
+    ? (priceChange / fullPrevCandle.close) * 100
+    : 0;
+
+  const lastCandle = fullLastCandle;
 
   return (
     <div className="flex flex-col h-full">
@@ -254,6 +318,16 @@ export function ChartPanel({
         </div>
 
         <div className="flex items-center gap-2">
+          {zoomRange && (
+            <button
+              type="button"
+              data-ocid="chart.reset_zoom.button"
+              onClick={handleResetZoom}
+              className="px-2.5 py-1 rounded-full text-xs font-mono font-medium text-gold border border-gold/40 bg-gold/10 hover:bg-gold/20 transition-colors flex items-center gap-1"
+            >
+              ↩ Full View
+            </button>
+          )}
           {(["1d", "1w", "1M"] as Timeframe[]).map((tf) => (
             <button
               type="button"
@@ -368,8 +442,8 @@ export function ChartPanel({
           ))}
 
           {/* Candlesticks */}
-          {chartData.map((c) => {
-            const cx = xScale(chartData.indexOf(c));
+          {chartData.map((c, ci) => {
+            const cx = xScale(ci);
             const isUp = c.close >= c.open;
             const color = isUp ? C.green : C.red;
             const bodyTop = yScale(Math.max(c.open, c.close));
@@ -411,8 +485,28 @@ export function ChartPanel({
           {/* Event markers */}
           {markers.map((m) => {
             const x = xScale(m.index);
+            // Global index (before zoom offset)
+            const globalIdx = zoomRange ? m.index + zoomRange.start : m.index;
             return (
-              <g key={`ev-${m.time}-${m.eventType}`}>
+              <g
+                key={`ev-${m.time}-${m.eventType}`}
+                tabIndex={0}
+                style={{ cursor: "pointer" }}
+                onClick={() =>
+                  handleMarkerClick(
+                    zoomRange ? { ...m, index: globalIdx } : m,
+                    globalIdx,
+                  )
+                }
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    handleMarkerClick(
+                      zoomRange ? { ...m, index: globalIdx } : m,
+                      globalIdx,
+                    );
+                  }
+                }}
+              >
                 <line
                   x1={x}
                   y1={PAD.top}
@@ -429,6 +523,15 @@ export function ChartPanel({
                   width={2}
                   height={6}
                   fill={m.color}
+                />
+                {/* Hit area */}
+                <rect
+                  x={x - 8}
+                  y={PAD.top}
+                  width={16}
+                  height={chartH}
+                  fill="transparent"
+                  stroke="none"
                 />
               </g>
             );
@@ -501,6 +604,87 @@ export function ChartPanel({
               <span className="text-muted-foreground">C</span>
               <span className="text-foreground font-bold">
                 {formatPrice(tooltip.candle.close)}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Focused event context card */}
+        {focusedEvent && (
+          <div
+            className="absolute z-20 rounded-lg shadow-xl border border-border p-3"
+            style={{
+              background: "oklch(0.165 0.035 240 / 0.97)",
+              top: 12,
+              left: 12,
+              maxWidth: 280,
+            }}
+            data-ocid="chart.event.card"
+          >
+            {/* Close button */}
+            <button
+              type="button"
+              onClick={() => setFocusedEvent(null)}
+              className="absolute top-2 right-2 text-muted-foreground hover:text-foreground transition-colors"
+              data-ocid="chart.event.close_button"
+              aria-label="Close event card"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+
+            {/* Event type badge */}
+            <span
+              className="inline-block text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded mb-2"
+              style={{
+                background: `${EVENT_COLORS[focusedEvent.eventType as string] ?? C.gold}22`,
+                color: EVENT_COLORS[focusedEvent.eventType as string] ?? C.gold,
+                border: `1px solid ${EVENT_COLORS[focusedEvent.eventType as string] ?? C.gold}55`,
+              }}
+            >
+              {focusedEvent.eventType as string}
+            </span>
+
+            {/* Title */}
+            <div className="font-semibold text-sm text-foreground leading-tight mb-1 pr-5">
+              {focusedEvent.title}
+            </div>
+
+            {/* Date */}
+            <div className="text-[10px] text-muted-foreground font-mono mb-2">
+              {formatEventDate(focusedEvent.timestamp)}
+            </div>
+
+            {/* Description */}
+            <p
+              className="text-xs text-muted-foreground leading-relaxed mb-2"
+              style={{
+                display: "-webkit-box",
+                WebkitLineClamp: 4,
+                WebkitBoxOrient: "vertical",
+                overflow: "hidden",
+              }}
+            >
+              {focusedEvent.description}
+            </p>
+
+            {/* Importance stars */}
+            <div className="flex items-center gap-0.5">
+              {[1, 2, 3, 4, 5].map((starNum) => (
+                <Star
+                  key={starNum}
+                  className="h-3 w-3"
+                  style={{
+                    color:
+                      starNum <= focusedEvent.importance ? C.gold : "#374151",
+                    fill:
+                      starNum <= focusedEvent.importance
+                        ? C.gold
+                        : "transparent",
+                  }}
+                />
+              ))}
+              <span className="text-[9px] text-muted-foreground ml-1 font-mono">
+                importance
               </span>
             </div>
           </div>

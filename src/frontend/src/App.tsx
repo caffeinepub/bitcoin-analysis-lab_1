@@ -3,11 +3,50 @@ import { ChartPanel } from "./components/ChartPanel";
 import { EventsTimeline } from "./components/EventsTimeline";
 import { FearGreed } from "./components/FearGreed";
 import { Header } from "./components/Header";
+import { HistoricalEventsPage } from "./components/HistoricalEventsPage";
 import { MajorMoves } from "./components/MajorMoves";
+import { PwaInstallBanner } from "./components/PwaInstallBanner";
+import { ReportsPage } from "./components/ReportsPage";
+import { SimilarityEnginePage } from "./components/SimilarityEnginePage";
 import { SimilarityPanel } from "./components/SimilarityPanel";
 import { StatsPanel } from "./components/StatsPanel";
 import { UpcomingEvents } from "./components/UpcomingEvents";
 import type { Timeframe } from "./types";
+
+const C_GOLD = "#F2B24C";
+
+function PageShell({
+  activeTab,
+  onTabChange,
+  children,
+}: {
+  activeTab: string;
+  onTabChange: (t: string) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className="min-h-screen flex flex-col"
+      style={{ background: "oklch(0.11 0.015 240)" }}
+    >
+      <Header activeTab={activeTab} onTabChange={onTabChange} />
+      <div className="flex-1">{children}</div>
+      <footer className="text-center py-3 text-[10px] text-muted-foreground border-t border-border">
+        © {new Date().getFullYear()}. Built with ❤️ using{" "}
+        <a
+          href={`https://caffeine.ai?utm_source=caffeine-footer&utm_medium=referral&utm_content=${encodeURIComponent(window.location.hostname)}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="hover:underline"
+          style={{ color: C_GOLD }}
+        >
+          caffeine.ai
+        </a>
+      </footer>
+      <PwaInstallBanner />
+    </div>
+  );
+}
 
 export default function App() {
   const [timeframe, setTimeframe] = useState<Timeframe>("1d");
@@ -18,6 +57,30 @@ export default function App() {
     document.documentElement.classList.add("dark");
     document.documentElement.style.colorScheme = "dark";
   }, []);
+
+  if (activeTab === "Historical Events") {
+    return (
+      <PageShell activeTab={activeTab} onTabChange={setActiveTab}>
+        <HistoricalEventsPage />
+      </PageShell>
+    );
+  }
+
+  if (activeTab === "Reports") {
+    return (
+      <PageShell activeTab={activeTab} onTabChange={setActiveTab}>
+        <ReportsPage />
+      </PageShell>
+    );
+  }
+
+  if (activeTab === "Similarity Engine") {
+    return (
+      <PageShell activeTab={activeTab} onTabChange={setActiveTab}>
+        <SimilarityEnginePage />
+      </PageShell>
+    );
+  }
 
   return (
     <div
@@ -106,11 +169,15 @@ export default function App() {
           href={`https://caffeine.ai?utm_source=caffeine-footer&utm_medium=referral&utm_content=${encodeURIComponent(window.location.hostname)}`}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-gold hover:underline"
+          className="hover:underline"
+          style={{ color: C_GOLD }}
         >
           caffeine.ai
         </a>
       </footer>
+
+      {/* PWA Install Banner */}
+      <PwaInstallBanner />
     </div>
   );
 }
