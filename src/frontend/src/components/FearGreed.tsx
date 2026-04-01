@@ -1,5 +1,5 @@
 import { Skeleton } from "@/components/ui/skeleton";
-import { useBTCCandles } from "../hooks/useBackendData";
+import { useBTCCandles, useFearGreedIndex } from "../hooks/useBackendData";
 
 function computeFearGreed(prices: number[]): {
   score: number;
@@ -47,6 +47,14 @@ function computeFearGreed(prices: number[]): {
   }
 
   return { score, label, color };
+}
+
+function classifyScore(score: number): { label: string; color: string } {
+  if (score <= 25) return { label: "Extreme Fear", color: "#EF4444" };
+  if (score <= 45) return { label: "Fear", color: "#F87171" };
+  if (score <= 55) return { label: "Neutral", color: "#F2B24C" };
+  if (score <= 75) return { label: "Greed", color: "#34D399" };
+  return { label: "Extreme Greed", color: "#10B981" };
 }
 
 function GaugeSVG({ score, color }: { score: number; color: string }) {
@@ -113,9 +121,21 @@ function GaugeSVG({ score, color }: { score: number; color: string }) {
 }
 
 export function FearGreed() {
-  const { data: candles, isLoading } = useBTCCandles("1d");
+  const { data: candles, isLoading: candlesLoading } = useBTCCandles("1d");
+  const {
+    data: fngData,
+    isLoading: fngLoading,
+    isError: fngError,
+  } = useFearGreedIndex();
+
   const prices = candles?.map((c) => c.close) ?? [];
-  const { score, label, color } = computeFearGreed(prices);
+  const fallback = computeFearGreed(prices);
+
+  const isLive = !fngError && fngData && fngData.length > 0;
+  const score = isLive ? Number.parseInt(fngData[0].value) : fallback.score;
+  const { label, color } = isLive ? classifyScore(score) : fallback;
+
+  const isLoading = candlesLoading && fngLoading;
 
   return (
     <div
@@ -140,7 +160,7 @@ export function FearGreed() {
               {label}
             </div>
             <div className="text-[10px] text-muted-foreground mt-1">
-              30-day signal
+              {isLive ? "Real-time data" : "30-day signal"}
             </div>
           </div>
         </div>
@@ -150,6 +170,19 @@ export function FearGreed() {
         <span style={{ color: "#EF4444" }}>Ext. Fear</span>
         <span style={{ color: "#F2B24C" }}>Neutral</span>
         <span style={{ color: "#10B981" }}>Ext. Greed</span>
+      </div>
+
+      <div className="mt-1.5 flex justify-end">
+        {isLive ? (
+          <span
+            className="text-[9px] font-semibold"
+            style={{ color: "#22C55E" }}
+          >
+            Live • alternative.me
+          </span>
+        ) : (
+          <span className="text-[9px] text-muted-foreground">Estimated</span>
+        )}
       </div>
     </div>
   );

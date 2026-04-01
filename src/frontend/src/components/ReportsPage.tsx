@@ -8,11 +8,18 @@ import {
   BarChart3,
   Building2,
   Clock,
+  Cpu,
   Download,
   Flame,
+  TrendingUp,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { useHistoricalEvents } from "../hooks/useBackendData";
+import {
+  useBlockchainStats,
+  useCoinGeckoGlobal,
+  useFutureEvents,
+  useHistoricalEvents,
+} from "../hooks/useBackendData";
 
 const C_GOLD = "#F2B24C";
 
@@ -92,6 +99,42 @@ function useBinanceTicker() {
   return { data, loading };
 }
 
+// Fetches actual % price change for a given number of days
+function usePeriodChange(days: number): {
+  change: number | null;
+  loading: boolean;
+} {
+  const [change, setChange] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    setChange(null);
+    const interval = days === 1 ? "1h" : "1d";
+    const limit = days === 1 ? 25 : days + 1;
+    fetch(
+      `https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${interval}&limit=${limit}`,
+    )
+      .then((r) => r.json())
+      .then(
+        (candles: [number, string, string, string, string, ...unknown[]][]) => {
+          if (!candles || candles.length < 2) {
+            setLoading(false);
+            return;
+          }
+          const openPrice = Number(candles[0][1]);
+          const closePrice = Number(candles[candles.length - 1][4]);
+          const pct = ((closePrice - openPrice) / openPrice) * 100;
+          setChange(pct);
+          setLoading(false);
+        },
+      )
+      .catch(() => setLoading(false));
+  }, [days]);
+
+  return { change, loading };
+}
+
 function formatPrice(n: number) {
   return n.toLocaleString("en-US", {
     style: "currency",
@@ -104,6 +147,23 @@ function formatVolume(n: number) {
   if (n >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(2)}B`;
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
   return `$${n.toLocaleString()}`;
+}
+
+function formatMarketCap(n: number): string {
+  if (n >= 1e12) return `$${(n / 1e12).toFixed(2)}T`;
+  if (n >= 1e9) return `$${(n / 1e9).toFixed(1)}B`;
+  return `$${n.toLocaleString()}`;
+}
+
+function formatHashRate(thps: number): string {
+  if (thps >= 1e9) return `${(thps / 1e9).toFixed(1)} EH/s`;
+  if (thps >= 1e6) return `${(thps / 1e6).toFixed(1)} PH/s`;
+  return `${(thps / 1e3).toFixed(0)} PH/s`;
+}
+
+function formatDifficulty(d: number): string {
+  if (d >= 1e12) return `${(d / 1e12).toFixed(1)} T`;
+  return d.toLocaleString();
 }
 
 function MarketMomentumCard({
@@ -389,6 +449,149 @@ function FomoCard({ ticker }: { ticker: Ticker24h | null }) {
   );
 }
 
+function GlobalMarketCard() {
+  const { data, isLoading, isError } = useCoinGeckoGlobal();
+
+  return (
+    <Card
+      className="border-border"
+      style={{ background: "oklch(0.14 0.025 240)" }}
+      data-ocid="reports.global.card"
+    >
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-sm">
+          <TrendingUp className="h-4 w-4" style={{ color: C_GOLD }} />
+          Global Market
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="space-y-2" data-ocid="reports.global.loading_state">
+            <Skeleton className="h-6 w-full" />
+            <Skeleton className="h-6 w-full" />
+            <Skeleton className="h-6 w-full" />
+          </div>
+        ) : isError || !data ? (
+          <p
+            className="text-xs text-muted-foreground italic"
+            data-ocid="reports.global.error_state"
+          >
+            CoinGecko unavailable
+          </p>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">
+                BTC Dominance
+              </span>
+              <span
+                className="text-sm font-bold font-mono"
+                style={{ color: C_GOLD }}
+              >
+                {data.btc_dominance.toFixed(1)}%
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">
+                Total Market Cap
+              </span>
+              <span className="text-sm font-bold font-mono text-foreground">
+                {formatMarketCap(data.total_market_cap_usd)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">24h Change</span>
+              <span
+                className="text-sm font-bold"
+                style={{
+                  color:
+                    data.market_cap_change_percentage_24h_usd >= 0
+                      ? "#22C55E"
+                      : "#EF4444",
+                }}
+              >
+                {data.market_cap_change_percentage_24h_usd >= 0 ? "+" : ""}
+                {data.market_cap_change_percentage_24h_usd.toFixed(2)}%
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">
+                Active Cryptos
+              </span>
+              <span className="text-sm font-bold font-mono text-foreground">
+                {data.active_cryptocurrencies.toLocaleString()}
+              </span>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function OnChainMetricsCard() {
+  const { data, isLoading, isError } = useBlockchainStats();
+
+  return (
+    <Card
+      className="border-border"
+      style={{ background: "oklch(0.14 0.025 240)" }}
+      data-ocid="reports.onchain.card"
+    >
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-sm">
+          <Cpu className="h-4 w-4" style={{ color: C_GOLD }} />
+          On-Chain Metrics
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="space-y-2" data-ocid="reports.onchain.loading_state">
+            <Skeleton className="h-6 w-full" />
+            <Skeleton className="h-6 w-full" />
+            <Skeleton className="h-6 w-full" />
+          </div>
+        ) : isError || !data ? (
+          <p
+            className="text-xs text-muted-foreground italic"
+            data-ocid="reports.onchain.error_state"
+          >
+            blockchain.info unavailable
+          </p>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">Hash Rate</span>
+              <span
+                className="text-sm font-bold font-mono"
+                style={{ color: C_GOLD }}
+              >
+                {formatHashRate(data.hash_rate)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">
+                Daily Transactions
+              </span>
+              <span className="text-sm font-bold font-mono text-foreground">
+                {data.n_tx.toLocaleString()}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">
+                Mining Difficulty
+              </span>
+              <span className="text-sm font-bold font-mono text-foreground">
+                {formatDifficulty(data.difficulty)}
+              </span>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 type Period = "diario" | "semanal" | "quinzenal" | "mensal";
 
 const PERIOD_CONFIG: Record<
@@ -410,52 +613,87 @@ function generateSummary(
   const trend = change > 2 ? "bullish" : change < -2 ? "bearish" : "neutral";
   const priceFmt = price > 0 ? ` at ${formatPrice(price)}` : "";
   const periodLabel = PERIOD_CONFIG[period].label.toLowerCase();
+  const changeFmt = `${change >= 0 ? "+" : ""}${change.toFixed(2)}%`;
 
   const summaries: Record<string, string> = {
-    bullish: `Bitcoin continues its upward trajectory${priceFmt}, showing strong ${periodLabel} momentum. ${eventCount > 0 ? `${eventCount} key events influenced this period.` : ""} Institutional demand and on-chain metrics remain constructive. Resistance levels are being tested; a clean break could trigger further upside.`,
-    bearish: `Bitcoin faced selling pressure${priceFmt} over the ${periodLabel} period. ${eventCount > 0 ? `${eventCount} events contributed to the negative sentiment.` : ""} Watch for support zone defense before considering new positions. Macro headwinds remain a concern.`,
-    neutral: `Bitcoin consolidates${priceFmt} in a tight range, reflecting market indecision. ${eventCount > 0 ? `${eventCount} events noted during this period.` : ""} On-chain fundamentals remain stable. A directional catalyst is likely needed to break the current range.`,
+    bullish: `Bitcoin shows strong upward momentum${priceFmt} with a ${changeFmt} ${periodLabel} gain. ${eventCount > 0 ? `${eventCount} key events influenced this period.` : ""} Institutional demand and on-chain metrics remain constructive. Resistance levels are being tested; a clean break could trigger further upside.`,
+    bearish: `Bitcoin faced selling pressure${priceFmt}, down ${changeFmt} over the ${periodLabel} period. ${eventCount > 0 ? `${eventCount} events contributed to the negative sentiment.` : ""} Watch for support zone defense before considering new positions. Macro headwinds remain a concern.`,
+    neutral: `Bitcoin consolidates${priceFmt} with a modest ${changeFmt} ${periodLabel} move, reflecting market indecision. ${eventCount > 0 ? `${eventCount} events noted during this period.` : ""} On-chain fundamentals remain stable. A directional catalyst is likely needed to break the current range.`,
   };
   return summaries[trend];
 }
+
+const TYPE_COLORS: Record<string, string> = {
+  Estrutural: "#F59E0B",
+  Macro: "#3B82F6",
+  Geopolitico: "#EF4444",
+};
 
 function PeriodReport({
   period,
   ticker,
   events,
+  futureEvents,
 }: {
   period: Period;
   ticker: Ticker24h | null;
   events: import("../backend").HistoricalEvent[];
+  futureEvents: import("../backend").FutureEvent[];
 }) {
   const config = PERIOD_CONFIG[period];
   const price = ticker ? Number(ticker.lastPrice) : 0;
-  const change = ticker ? Number(ticker.priceChangePercent) : 0;
+
+  // Fetch period-specific price change from Binance klines
+  const { change: periodChange, loading: periodChangeLoading } =
+    usePeriodChange(config.days);
+  const change = periodChange ?? 0;
 
   const nowMs = Date.now();
-  const startMs = nowMs - config.days * 24 * 3600 * 1000;
+  const oneYearMs = 365 * 24 * 3600 * 1000;
 
-  const periodEvents = useMemo(
+  // Upcoming future events (sorted ascending, first 3)
+  const upcomingEvents = useMemo(
     () =>
-      events.filter((e) => {
+      [...futureEvents]
+        .sort((a, b) => Number(a.expectedTime - b.expectedTime))
+        .slice(0, 3),
+    [futureEvents],
+  );
+
+  // Recent historical events (last 365 days, sorted descending, up to 5)
+  // Fall back to 5 most recent from full dataset if none in last year
+  const recentHistorical = useMemo(() => {
+    const startMs = nowMs - oneYearMs;
+    const inLastYear = events
+      .filter((e) => {
         const ms = Number(e.timestamp) / 1_000_000;
         return ms >= startMs && ms <= nowMs;
-      }),
-    [events, startMs, nowMs],
-  );
+      })
+      .sort((a, b) => Number(b.timestamp - a.timestamp))
+      .slice(0, 5);
+
+    if (inLastYear.length > 0) return inLastYear;
+
+    // Fallback: 5 most recent historical events from full dataset
+    return [...events]
+      .sort((a, b) => Number(b.timestamp - a.timestamp))
+      .slice(0, 5);
+  }, [events, nowMs]);
+
+  const totalEventCount = upcomingEvents.length + recentHistorical.length;
 
   const endDate = new Date(nowMs).toLocaleDateString("pt-BR", {
     day: "2-digit",
     month: "short",
     year: "numeric",
   });
-  const startDate = new Date(startMs).toLocaleDateString("pt-BR", {
+  const startDate = new Date(
+    nowMs - config.days * 24 * 3600 * 1000,
+  ).toLocaleDateString("pt-BR", {
     day: "2-digit",
     month: "short",
     year: "numeric",
   });
-
-  const summary = generateSummary(period, price, change, periodEvents.length);
 
   return (
     <div
@@ -496,26 +734,31 @@ function PeriodReport({
           className="rounded-lg p-3 border border-border"
           style={{ background: "oklch(0.12 0.02 240)" }}
         >
-          <p className="text-[10px] text-muted-foreground mb-1">24h Change</p>
-          <p
-            className="text-sm font-bold"
-            style={{ color: change >= 0 ? "#22C55E" : "#EF4444" }}
-          >
-            {change >= 0 ? "+" : ""}
-            {change.toFixed(2)}%
+          <p className="text-[10px] text-muted-foreground mb-1">
+            {config.days === 1 ? "24h" : `${config.days}d"}`} Change
           </p>
+          {periodChangeLoading ? (
+            <Skeleton className="h-5 w-16" />
+          ) : (
+            <p
+              className="text-sm font-bold"
+              style={{ color: change >= 0 ? "#22C55E" : "#EF4444" }}
+            >
+              {change >= 0 ? "+" : ""}
+              {change.toFixed(2)}%
+            </p>
+          )}
         </div>
         <div
           className="rounded-lg p-3 border border-border"
           style={{ background: "oklch(0.12 0.02 240)" }}
         >
           <p className="text-[10px] text-muted-foreground mb-1">Events</p>
-          <p className="text-sm font-bold text-foreground">
-            {periodEvents.length}
-          </p>
+          <p className="text-sm font-bold text-foreground">{totalEventCount}</p>
         </div>
       </div>
 
+      {/* Market Summary */}
       <div
         className="rounded-lg p-3 border border-border mb-4"
         style={{ background: "oklch(0.12 0.02 240)" }}
@@ -523,22 +766,34 @@ function PeriodReport({
         <p className="text-[11px] font-semibold text-muted-foreground mb-1.5 uppercase tracking-wider">
           Market Summary
         </p>
-        <p className="text-xs text-foreground/80 leading-relaxed">{summary}</p>
+        {periodChangeLoading ? (
+          <div className="space-y-1.5">
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-5/6" />
+            <Skeleton className="h-3 w-4/6" />
+          </div>
+        ) : (
+          <p className="text-xs text-foreground/80 leading-relaxed">
+            {generateSummary(period, price, change, totalEventCount)}
+          </p>
+        )}
       </div>
 
-      {periodEvents.length > 0 && (
-        <div>
+      {/* Upcoming Events */}
+      {upcomingEvents.length > 0 && (
+        <div className="mb-4">
           <p className="text-[11px] font-semibold text-muted-foreground mb-2 uppercase tracking-wider">
-            Key Events This Period
+            Upcoming Events
           </p>
           <div className="space-y-1.5">
-            {periodEvents.slice(0, 5).map((ev) => {
-              const TYPE_COLORS: Record<string, string> = {
-                Estrutural: "#F59E0B",
-                Macro: "#3B82F6",
-                Geopolitico: "#EF4444",
-              };
+            {upcomingEvents.map((ev) => {
               const color = TYPE_COLORS[ev.eventType as string] ?? "#3B82F6";
+              const evMs = Number(ev.expectedTime) / 1_000_000;
+              const evDate = new Date(evMs).toLocaleDateString("pt-BR", {
+                day: "2-digit",
+                month: "short",
+                year: "numeric",
+              });
               return (
                 <div
                   key={String(ev.id)}
@@ -548,8 +803,11 @@ function PeriodReport({
                     className="mt-0.5 h-1.5 w-1.5 rounded-full shrink-0"
                     style={{ background: color }}
                   />
-                  <span className="text-foreground/80 line-clamp-1">
+                  <span className="text-foreground/80 flex-1 line-clamp-1">
                     {ev.title}
+                  </span>
+                  <span className="text-muted-foreground shrink-0">
+                    {evDate}
                   </span>
                 </div>
               );
@@ -558,10 +816,41 @@ function PeriodReport({
         </div>
       )}
 
-      {periodEvents.length === 0 && (
-        <p className="text-xs text-muted-foreground italic">
-          No recorded events in this period.
-        </p>
+      {/* Recent Historical Events */}
+      {recentHistorical.length > 0 && (
+        <div>
+          <p className="text-[11px] font-semibold text-muted-foreground mb-2 uppercase tracking-wider">
+            Recent Historical Events
+          </p>
+          <div className="space-y-1.5">
+            {recentHistorical.map((ev) => {
+              const color = TYPE_COLORS[ev.eventType as string] ?? "#3B82F6";
+              const evMs = Number(ev.timestamp) / 1_000_000;
+              const evDate = new Date(evMs).toLocaleDateString("pt-BR", {
+                day: "2-digit",
+                month: "short",
+                year: "numeric",
+              });
+              return (
+                <div
+                  key={String(ev.id)}
+                  className="flex items-start gap-2 text-xs"
+                >
+                  <span
+                    className="mt-0.5 h-1.5 w-1.5 rounded-full shrink-0"
+                    style={{ background: color }}
+                  />
+                  <span className="text-foreground/80 flex-1 line-clamp-1">
+                    {ev.title}
+                  </span>
+                  <span className="text-muted-foreground shrink-0">
+                    {evDate}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       )}
     </div>
   );
@@ -571,6 +860,7 @@ export function ReportsPage() {
   const countdown = useCountdown();
   const { data: ticker, loading: tickerLoading } = useBinanceTicker();
   const { data: events = [] } = useHistoricalEvents();
+  const { data: futureEvents = [] } = useFutureEvents();
   const [activePeriod, setActivePeriod] = useState<Period>("diario");
 
   return (
@@ -612,6 +902,11 @@ export function ReportsPage() {
           <FomoCard ticker={ticker} />
         </div>
 
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <GlobalMarketCard />
+          <OnChainMetricsCard />
+        </div>
+
         <Separator />
 
         <Tabs
@@ -642,7 +937,12 @@ export function ReportsPage() {
 
           {(Object.keys(PERIOD_CONFIG) as Period[]).map((p) => (
             <TabsContent key={p} value={p} className="mt-4">
-              <PeriodReport period={p} ticker={ticker} events={events} />
+              <PeriodReport
+                period={p}
+                ticker={ticker}
+                events={events}
+                futureEvents={futureEvents}
+              />
             </TabsContent>
           ))}
         </Tabs>

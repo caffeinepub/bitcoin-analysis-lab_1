@@ -1,5 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { fetchBTCCandles } from "../services/binance";
+import {
+  fetchBlockchainStats,
+  fetchCoinGeckoGlobal,
+  fetchFearGreedIndex,
+} from "../services/externalApis";
 import type { Timeframe } from "../types";
 import { useActor } from "./useActor";
 
@@ -13,8 +18,8 @@ export function useBTCCandles(timeframe: Timeframe) {
 }
 
 export function useHistoricalEvents() {
-  const { actor, isFetching } = useActor();
-  return useQuery({
+  const { actor, isFetching: actorFetching } = useActor();
+  const query = useQuery({
     queryKey: ["historical-events"],
     queryFn: async () => {
       if (!actor) return [];
@@ -23,9 +28,15 @@ export function useHistoricalEvents() {
       const end = BigInt(Date.now()) * BigInt(1_000_000);
       return actor.getEventsWindow(start, end);
     },
-    enabled: !!actor && !isFetching,
+    enabled: !!actor && !actorFetching,
     staleTime: 1000 * 60 * 10,
   });
+  // isPending = status is 'pending' (no data yet), even when disabled
+  // This prevents the empty-state flash between actor resolving and query starting
+  return {
+    ...query,
+    isLoading: query.isPending || actorFetching,
+  };
 }
 
 export function useMajorMoves() {
@@ -42,16 +53,20 @@ export function useMajorMoves() {
 }
 
 export function useFutureEvents() {
-  const { actor, isFetching } = useActor();
-  return useQuery({
+  const { actor, isFetching: actorFetching } = useActor();
+  const query = useQuery({
     queryKey: ["future-events"],
     queryFn: async () => {
       if (!actor) return [];
       return actor.getFutureEvents();
     },
-    enabled: !!actor && !isFetching,
+    enabled: !!actor && !actorFetching,
     staleTime: 1000 * 60 * 10,
   });
+  return {
+    ...query,
+    isLoading: query.isPending || actorFetching,
+  };
 }
 
 export function useSimilarity(currentPrice: number, recentReturnPct: number) {
@@ -68,5 +83,32 @@ export function useSimilarity(currentPrice: number, recentReturnPct: number) {
     },
     enabled: !!actor && !isFetching && currentPrice > 0,
     staleTime: 1000 * 60 * 5,
+  });
+}
+
+export function useFearGreedIndex() {
+  return useQuery({
+    queryKey: ["fear-greed-index"],
+    queryFn: fetchFearGreedIndex,
+    staleTime: 1000 * 60 * 5,
+    retry: 1,
+  });
+}
+
+export function useCoinGeckoGlobal() {
+  return useQuery({
+    queryKey: ["coingecko-global"],
+    queryFn: fetchCoinGeckoGlobal,
+    staleTime: 1000 * 60 * 10,
+    retry: 1,
+  });
+}
+
+export function useBlockchainStats() {
+  return useQuery({
+    queryKey: ["blockchain-stats"],
+    queryFn: fetchBlockchainStats,
+    staleTime: 1000 * 60 * 10,
+    retry: 1,
   });
 }
