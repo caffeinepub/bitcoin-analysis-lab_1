@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ChartPanel } from "./components/ChartPanel";
+import { ComparativeChartsPage } from "./components/ComparativeChartsPage";
 import { EventsTimeline } from "./components/EventsTimeline";
 import { FearGreed } from "./components/FearGreed";
 import { Header } from "./components/Header";
@@ -78,6 +79,14 @@ export default function App() {
     return (
       <PageShell activeTab={activeTab} onTabChange={setActiveTab}>
         <SimilarityEnginePage />
+      </PageShell>
+    );
+  }
+
+  if (activeTab === "Comparative") {
+    return (
+      <PageShell activeTab={activeTab} onTabChange={setActiveTab}>
+        <ComparativeChartsPage />
       </PageShell>
     );
   }

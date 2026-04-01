@@ -396,6 +396,56 @@ actor {
       importance = 9.1;
       predictability = 3.6;
     },
+    {
+      id = 35;
+      timestamp = 1713484800_000_000_000;
+      eventType = #Estrutural;
+      title = "Bitcoin halving 4 (April 2024)";
+      description = "Block reward halved from 6.25 to 3.125 BTC. Fourth halving, preceded by unprecedented institutional demand via ETFs.";
+      source = "https://bitcoinmagazine.com";
+      importance = 9.5;
+      predictability = 10.0;
+    },
+    {
+      id = 36;
+      timestamp = 1716422400_000_000_000;
+      eventType = #Estrutural;
+      title = "Ethereum spot ETF approval (US)";
+      description = "SEC approves Ethereum spot ETFs in the US, expanding institutional crypto access beyond Bitcoin.";
+      source = "https://www.sec.gov";
+      importance = 8.8;
+      predictability = 6.5;
+    },
+    {
+      id = 37;
+      timestamp = 1733356800_000_000_000;
+      eventType = #Macro;
+      title = "BTC $100k milestone breached";
+      description = "Bitcoin surpasses $100,000 for the first time, driven by ETF inflows and post-halving supply squeeze. Landmark psychological level.";
+      source = "https://coinmarketcap.com";
+      importance = 9.8;
+      predictability = 4.1;
+    },
+    {
+      id = 38;
+      timestamp = 1741219200_000_000_000;
+      eventType = #Geopolitico;
+      title = "US Strategic Bitcoin Reserve announced";
+      description = "US government announces intent to hold Bitcoin as a strategic reserve asset, triggering global sovereign adoption race.";
+      source = "https://whitehouse.gov";
+      importance = 10.0;
+      predictability = 2.8;
+    },
+    {
+      id = 39;
+      timestamp = 1751328000_000_000_000;
+      eventType = #Macro;
+      title = "Fed rate cut cycle 2025";
+      description = "Federal Reserve completed a series of rate cuts throughout 2025, increasing liquidity and risk appetite across markets including crypto.";
+      source = "https://federalreserve.gov";
+      importance = 8.6;
+      predictability = 7.5;
+    },
   ];
 
   let majorMoves = [
@@ -516,75 +566,75 @@ actor {
   let futureEvents = [
     {
       id = 1;
-      expectedTime = 1735689600_000_000_000;
+      expectedTime = 1780272000_000_000_000;
       eventType = #Macro;
-      title = "BTC $100k milestone";
-      description = "First 6-figure headline price reached (prediction)";
-      importance = 9.5;
-      predictability = 4.1;
+      title = "Potential BTC cycle top Q2-Q3 2026";
+      description = "Historical halving cycles peak ~18 months post-halving. Q2/Q3 2026 window aligns with prior cycle tops.";
+      importance = 9.3;
+      predictability = 3.8;
     },
     {
       id = 2;
-      expectedTime = 1799270400_000_000_000;
-      eventType = #Estrutural;
-      title = "Next Bitcoin halving (~2028)";
-      description = "Block reward drops from 3.125 to 1.5625 BTC (Estrutural positive impact)";
-      importance = 9.2;
-      predictability = 10.0;
+      expectedTime = 1782864000_000_000_000;
+      eventType = #Geopolitico;
+      title = "Global sovereign BTC accumulation race";
+      description = "Following US strategic reserve, other nations accelerate Bitcoin holdings. Supply pressure intensifies.";
+      importance = 9.7;
+      predictability = 4.2;
     },
     {
       id = 3;
-      expectedTime = 1767225600_000_000_000;
+      expectedTime = 1790812800_000_000_000;
       eventType = #Macro;
-      title = "Potential Fed rate cut cycle 2025";
-      description = "Monetary easing could increase risk appetite and liquidity (+)";
-      importance = 8.6;
-      predictability = 7.5;
+      title = "US crypto regulatory framework (2026)";
+      description = "Comprehensive US digital asset legislation expected mid-2026, clarifying legal status and institutional custody rules.";
+      importance = 9.0;
+      predictability = 7.1;
     },
     {
       id = 4;
-      expectedTime = 1767225600_000_000_000;
+      expectedTime = 1796083200_000_000_000;
       eventType = #Macro;
-      title = "Potential US strategic Bitcoin reserve (policy adoption)";
-      description = "Geopolitical arms race as nations accumulate BTC as reserves";
-      importance = 10.0;
-      predictability = 3.6;
-    },
-    {
-      id = 5;
-      expectedTime = 1769894400_000_000_000;
-      eventType = #Estrutural;
-      title = "Ethereum ETF developments";
-      description = "Institutional product approvals for ETH; cross asset synergies";
-      importance = 8.1;
-      predictability = 6.9;
-    },
-    {
-      id = 6;
-      expectedTime = 1811961600_000_000_000;
-      eventType = #Macro;
-      title = "Potential BTC $200k+ scenario (cycle top)";
-      description = "Market blow-off phase and euphoria (+/- climactic)";
+      title = "Potential BTC $200k+ scenario";
+      description = "Market blow-off phase and euphoria. Historical cycles suggest 4-6x from halving price as cycle top range.";
       importance = 8.9;
       predictability = 2.3;
     },
     {
-      id = 7;
-      expectedTime = 1799270400_000_000_000;
+      id = 5;
+      expectedTime = 1806537600_000_000_000;
+      eventType = #Estrutural;
+      title = "Lightning Network mass adoption milestone";
+      description = "Layer 2 payment adoption reaches critical mass, shifting BTC narrative toward daily-use currency.";
+      importance = 8.2;
+      predictability = 5.5;
+    },
+    {
+      id = 6;
+      expectedTime = 1814400000_000_000_000;
       eventType = #Geopolitico;
-      title = "G20 crypto regulatory framework";
-      description = "Coordination among global powers impacts market structure";
+      title = "G20 crypto regulatory coordination";
+      description = "International standards for crypto taxation, custody and AML/KYC alignment. Could trigger institutional wave.";
       importance = 7.7;
       predictability = 8.3;
     },
     {
-      id = 8;
-      expectedTime = 1799270400_000_000_000;
+      id = 7;
+      expectedTime = 1830384000_000_000_000;
       eventType = #Macro;
-      title = "CBDC launches potentially competing with BTC";
-      description = "Central bank digital currencies adoption and legal risks";
+      title = "CBDC rollouts competing with BTC";
+      description = "Major economies launch CBDCs. Could restrict crypto flows but historically increases BTC as hard-money alternative.";
       importance = 8.5;
       predictability = 7.7;
+    },
+    {
+      id = 8;
+      expectedTime = 1839888000_000_000_000;
+      eventType = #Estrutural;
+      title = "Bitcoin halving 5 (~April 2028)";
+      description = "Block reward drops from 3.125 to 1.5625 BTC. Fifth halving, with ~94% of supply already mined.";
+      importance = 9.5;
+      predictability = 10.0;
     },
   ];
 

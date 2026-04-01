@@ -1,11 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { fetchBTCCandles } from "../services/binance";
+import { fetchBTCCandles, fetchBTCCandlesAt } from "../services/binance";
 import {
   fetchBlockchainStats,
   fetchCoinGeckoGlobal,
   fetchFearGreedIndex,
 } from "../services/externalApis";
-import type { Timeframe } from "../types";
+import type { CompareTimeframe, Timeframe } from "../types";
 import { useActor } from "./useActor";
 
 export function useBTCCandles(timeframe: Timeframe) {
@@ -14,6 +14,20 @@ export function useBTCCandles(timeframe: Timeframe) {
     queryFn: () => fetchBTCCandles(timeframe),
     staleTime: 1000 * 60 * 5,
     retry: 2,
+  });
+}
+
+export function useBTCCandlesAt(
+  interval: CompareTimeframe,
+  startTime: number,
+  endTime: number,
+) {
+  return useQuery({
+    queryKey: ["btc-candles-at", interval, startTime, endTime],
+    queryFn: () => fetchBTCCandlesAt(interval, startTime, endTime),
+    staleTime: 1000 * 60 * 5,
+    retry: 2,
+    enabled: startTime > 0 && endTime > 0,
   });
 }
 

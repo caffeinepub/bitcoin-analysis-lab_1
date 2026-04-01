@@ -11,7 +11,7 @@ const NAV_ITEMS = [
   "Historical Events",
   "Similarity Engine",
   "Reports",
-  "Academy",
+  "Comparative",
 ];
 
 export function Header({ activeTab, onTabChange }: HeaderProps) {
