@@ -1,0 +1,122 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@font-face {
+  font-family: "Bricolage Grotesque";
+  src: url("/assets/fonts/BricolageGrotesque.woff2") format("woff2");
+  font-weight: 200 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Plus Jakarta Sans";
+  src: url("/assets/fonts/PlusJakartaSans.woff2") format("woff2");
+  font-weight: 300 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/assets/fonts/JetBrainsMono.woff2") format("woff2");
+  font-weight: 300 700;
+  font-display: swap;
+}
+
+@layer base {
+  :root {
+    --radius: 0.375rem;
+    --background: 0.11 0.015 240;
+    --foreground: 0.935 0.01 238;
+    --card: 0.14 0.025 240;
+    --card-foreground: 0.935 0.01 238;
+    --popover: 0.165 0.035 240;
+    --popover-foreground: 0.935 0.01 238;
+    --primary: 0.775 0.14 65;
+    --primary-foreground: 0.11 0.015 240;
+    --secondary: 0.22 0.04 238;
+    --secondary-foreground: 0.935 0.01 238;
+    --muted: 0.165 0.035 240;
+    --muted-foreground: 0.675 0.018 238;
+    --accent: 0.22 0.04 238;
+    --accent-foreground: 0.935 0.01 238;
+    --destructive: 0.68 0.155 20;
+    --destructive-foreground: 0.935 0.01 238;
+    --border: 0.22 0.04 238;
+    --input: 0.22 0.04 238;
+    --ring: 0.775 0.14 65;
+    --chart-1: 0.775 0.14 65;
+    --chart-2: 0.75 0.14 162;
+    --chart-3: 0.68 0.155 20;
+    --chart-4: 0.65 0.2 250;
+    --chart-5: 0.72 0.12 285;
+    --sidebar: 0.12 0.02 240;
+    --sidebar-foreground: 0.935 0.01 238;
+    --sidebar-primary: 0.775 0.14 65;
+    --sidebar-primary-foreground: 0.11 0.015 240;
+    --sidebar-accent: 0.22 0.04 238;
+    --sidebar-accent-foreground: 0.935 0.01 238;
+    --sidebar-border: 0.22 0.04 238;
+    --sidebar-ring: 0.775 0.14 65;
+  }
+
+  .dark {
+    --background: 0.11 0.015 240;
+    --foreground: 0.935 0.01 238;
+    --card: 0.14 0.025 240;
+    --card-foreground: 0.935 0.01 238;
+    --popover: 0.165 0.035 240;
+    --popover-foreground: 0.935 0.01 238;
+    --primary: 0.775 0.14 65;
+    --primary-foreground: 0.11 0.015 240;
+    --secondary: 0.22 0.04 238;
+    --secondary-foreground: 0.935 0.01 238;
+    --muted: 0.165 0.035 240;
+    --muted-foreground: 0.675 0.018 238;
+    --accent: 0.22 0.04 238;
+    --accent-foreground: 0.935 0.01 238;
+    --destructive: 0.68 0.155 20;
+    --destructive-foreground: 0.935 0.01 238;
+    --border: 0.22 0.04 238;
+    --input: 0.22 0.04 238;
+    --ring: 0.775 0.14 65;
+    --chart-1: 0.775 0.14 65;
+    --chart-2: 0.75 0.14 162;
+    --chart-3: 0.68 0.155 20;
+    --chart-4: 0.65 0.2 250;
+    --chart-5: 0.72 0.12 285;
+    --sidebar: 0.12 0.02 240;
+    --sidebar-foreground: 0.935 0.01 238;
+    --sidebar-primary: 0.775 0.14 65;
+    --sidebar-primary-foreground: 0.11 0.015 240;
+    --sidebar-accent: 0.22 0.04 238;
+    --sidebar-accent-foreground: 0.935 0.01 238;
+    --sidebar-border: 0.22 0.04 238;
+    --sidebar-ring: 0.775 0.14 65;
+  }
+
+  * {
+    @apply border-border;
+  }
+  html {
+    color-scheme: dark;
+  }
+  body {
+    @apply bg-background text-foreground font-sans;
+    font-size: 13px;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: oklch(0.11 0.015 240);
+}
+::-webkit-scrollbar-thumb {
+  background: oklch(0.22 0.04 238);
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.775 0.14 65 / 0.5);
+}
