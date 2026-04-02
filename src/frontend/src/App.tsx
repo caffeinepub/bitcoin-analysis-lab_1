@@ -6,6 +6,7 @@ import { FearGreed } from "./components/FearGreed";
 import { Header } from "./components/Header";
 import { HistoricalEventsPage } from "./components/HistoricalEventsPage";
 import { MajorMoves } from "./components/MajorMoves";
+import { NewsPage } from "./components/NewsPage";
 import { PwaInstallBanner } from "./components/PwaInstallBanner";
 import { ReportsPage } from "./components/ReportsPage";
 import { SimilarityEnginePage } from "./components/SimilarityEnginePage";
@@ -87,6 +88,14 @@ export default function App() {
     return (
       <PageShell activeTab={activeTab} onTabChange={setActiveTab}>
         <ComparativeChartsPage />
+      </PageShell>
+    );
+  }
+
+  if (activeTab === "News") {
+    return (
+      <PageShell activeTab={activeTab} onTabChange={setActiveTab}>
+        <NewsPage />
       </PageShell>
     );
   }
