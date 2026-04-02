@@ -8,7 +8,7 @@ export interface OHLCVCandle {
   timestamp: number; // ms
 }
 
-export type Timeframe = "1d" | "1w" | "1M";
+export type Timeframe = "1h" | "4h" | "1d" | "1w" | "1M";
 
 export type CompareTimeframe =
   | "1m"

@@ -53,12 +53,23 @@ function PageShell({
 export default function App() {
   const [timeframe, setTimeframe] = useState<Timeframe>("1d");
   const [activeTab, setActiveTab] = useState("Dashboard");
+  const [chartFullscreen, setChartFullscreen] = useState(false);
 
   // Enforce dark mode
   useEffect(() => {
     document.documentElement.classList.add("dark");
     document.documentElement.style.colorScheme = "dark";
   }, []);
+
+  // ESC to exit fullscreen
+  useEffect(() => {
+    if (!chartFullscreen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setChartFullscreen(false);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [chartFullscreen]);
 
   if (activeTab === "Historical Events") {
     return (
@@ -137,7 +148,12 @@ export default function App() {
             maxHeight: "calc(100vh - 56px - 2rem - 280px)",
           }}
         >
-          <ChartPanel timeframe={timeframe} onTimeframeChange={setTimeframe} />
+          <ChartPanel
+            timeframe={timeframe}
+            onTimeframeChange={setTimeframe}
+            onToggleFullscreen={() => setChartFullscreen(true)}
+            isFullscreen={false}
+          />
         </main>
 
         {/* Right sidebar */}
@@ -163,15 +179,12 @@ export default function App() {
         className="grid gap-2 px-2 pb-2"
         style={{ gridTemplateColumns: "1fr 480px", height: "260px" }}
       >
-        {/* Major Moves */}
         <div
           className="rounded border border-border overflow-hidden"
           style={{ background: "oklch(0.14 0.025 240)" }}
         >
           <MajorMoves />
         </div>
-
-        {/* Stats Panel */}
         <div
           className="rounded border border-border overflow-hidden"
           style={{ background: "oklch(0.14 0.025 240)" }}
@@ -194,8 +207,22 @@ export default function App() {
         </a>
       </footer>
 
-      {/* PWA Install Banner */}
       <PwaInstallBanner />
+
+      {/* Fullscreen chart overlay */}
+      {chartFullscreen && (
+        <div
+          className="fixed inset-0 z-50 flex flex-col"
+          style={{ background: "oklch(0.11 0.015 240)" }}
+        >
+          <ChartPanel
+            timeframe={timeframe}
+            onTimeframeChange={setTimeframe}
+            isFullscreen={true}
+            onToggleFullscreen={() => setChartFullscreen(false)}
+          />
+        </div>
+      )}
     </div>
   );
 }

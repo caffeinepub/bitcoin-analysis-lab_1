@@ -1,6 +1,9 @@
 import {
   Activity,
   Loader2,
+  Maximize2,
+  Minimize2,
+  Minus,
   Star,
   TrendingDown,
   TrendingUp,
@@ -25,6 +28,7 @@ const C = {
   blue: "#3B82F6",
   amber: "#F59E0B",
   crosshair: "rgba(242,178,76,0.3)",
+  trendLine: "#A78BFA",
 };
 
 const EVENT_COLORS: Record<string, string> = {
@@ -33,10 +37,19 @@ const EVENT_COLORS: Record<string, string> = {
   Geopolitico: C.red,
 };
 
-// Constant — not reactive
 const PAD = { top: 16, right: 64, bottom: 36, left: 8 };
 
 type ExtendedMarker = ChartMarker & { event?: HistoricalEvent };
+
+// Trend lines stored in price-space so they reproject correctly on timeframe/zoom changes
+interface TrendLine {
+  id: string;
+  // Normalized x position: 0 = leftmost candle, 1 = rightmost candle (relative to current view)
+  xRatio1: number;
+  xRatio2: number;
+  price1: number;
+  price2: number;
+}
 
 function nsToMs(ns: bigint): number {
   return Number(ns) / 1_000_000;
@@ -78,12 +91,24 @@ interface Props {
   timeframe: Timeframe;
   onTimeframeChange: (tf: Timeframe) => void;
   onPriceData?: (price: number, ret30d: number) => void;
+  isFullscreen?: boolean;
+  onToggleFullscreen?: () => void;
 }
+
+const TIMEFRAMES: { value: Timeframe; label: string }[] = [
+  { value: "1h", label: "1H" },
+  { value: "4h", label: "4H" },
+  { value: "1d", label: "1D" },
+  { value: "1w", label: "1W" },
+  { value: "1M", label: "1M" },
+];
 
 export function ChartPanel({
   timeframe,
   onTimeframeChange,
   onPriceData,
+  isFullscreen = false,
+  onToggleFullscreen,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -93,6 +118,18 @@ export function ChartPanel({
   const [focusedEvent, setFocusedEvent] = useState<HistoricalEvent | null>(
     null,
   );
+  const [hoveredLineId, setHoveredLineId] = useState<string | null>(null);
+
+  // Trend line state — stored in price-space, not pixel-space
+  const [trendMode, setTrendMode] = useState(false);
+  const [trendLines, setTrendLines] = useState<TrendLine[]>([]);
+  const [drawing, setDrawing] = useState<{
+    xRatio1: number;
+    y1: number;
+    price1: number;
+    xRatio2: number;
+    y2: number;
+  } | null>(null);
 
   const {
     data: candles,
@@ -110,6 +147,13 @@ export function ChartPanel({
     const ret30d = prev.close > 0 ? (last.close - prev.close) / prev.close : 0;
     onPriceData(last.close, ret30d);
   }, [candles, onPriceData]);
+
+  // Clear trend lines when timeframe changes so stale lines don't confuse
+  // biome-ignore lint/correctness/useExhaustiveDependencies: timeframe is a prop, valid dependency
+  useEffect(() => {
+    setTrendLines([]);
+    setDrawing(null);
+  }, [timeframe]);
 
   // Resize observer
   useEffect(() => {
@@ -129,7 +173,6 @@ export function ChartPanel({
   const fullChartData = candles && candles.length > 0 ? candles : [];
   const totalN = fullChartData.length;
 
-  // Apply zoom slice
   const chartData = zoomRange
     ? fullChartData.slice(zoomRange.start, zoomRange.end)
     : fullChartData;
@@ -148,10 +191,26 @@ export function ChartPanel({
       PAD.top + (1 - (price - priceMin) / (priceMax - priceMin)) * chartH,
     [chartH, priceMin, priceMax],
   );
+  const yToPrice = useCallback(
+    (y: number) =>
+      priceMin + (1 - (y - PAD.top) / chartH) * (priceMax - priceMin),
+    [chartH, priceMin, priceMax],
+  );
+
+  // Convert pixel X to xRatio (0..1 across the chart plot area)
+  const xToRatio = useCallback(
+    (x: number) => (x - PAD.left) / Math.max(chartW, 1),
+    [chartW],
+  );
+  // Convert xRatio back to pixel X
+  const ratioToX = useCallback(
+    (ratio: number) => PAD.left + ratio * chartW,
+    [chartW],
+  );
 
   const candleW = Math.max(1, (chartW / Math.max(n, 1)) * 0.7);
 
-  // Build event markers (always based on full data for index mapping)
+  // Build event markers
   const allMarkers: ExtendedMarker[] = [];
   if (events && totalN > 0) {
     for (const ev of events) {
@@ -178,7 +237,6 @@ export function ChartPanel({
     }
   }
 
-  // Filter markers to visible range when zoomed
   const markers: ExtendedMarker[] = zoomRange
     ? allMarkers
         .filter((m) => m.index >= zoomRange.start && m.index < zoomRange.end)
@@ -239,39 +297,125 @@ export function ChartPanel({
     }
   }
 
+  // Get SVG coordinates from mouse event
+  const getSvgCoords = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+    if (!svgRef.current) return null;
+    const rect = svgRef.current.getBoundingClientRect();
+    return {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+    };
+  }, []);
+
   const handleMouseMove = useCallback(
     (e: React.MouseEvent<SVGSVGElement>) => {
-      if (!svgRef.current || n === 0) return;
-      const rect = svgRef.current.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const relX = mouseX - PAD.left;
-      const candleSpacing = chartW / n;
-      const idx = Math.round(relX / candleSpacing - 0.5);
-      if (idx >= 0 && idx < n) {
-        setTooltip({
-          x: xScale(idx),
-          y: yScale(chartData[idx].close),
-          candle: chartData[idx],
-        });
+      const coords = getSvgCoords(e);
+      if (!coords || n === 0) return;
+      const { x, y } = coords;
+
+      // Update drawing line preview (store as ratio)
+      if (trendMode && drawing) {
+        setDrawing((d) => (d ? { ...d, xRatio2: xToRatio(x), y2: y } : null));
+      }
+
+      // Tooltip (only in non-trend mode or when not drawing)
+      if (!trendMode || !drawing) {
+        const relX = x - PAD.left;
+        const candleSpacing = chartW / n;
+        const idx = Math.round(relX / candleSpacing - 0.5);
+        if (idx >= 0 && idx < n) {
+          setTooltip({
+            x: xScale(idx),
+            y: yScale(chartData[idx].close),
+            candle: chartData[idx],
+          });
+        }
       }
     },
-    [n, chartW, xScale, yScale, chartData],
+    [
+      n,
+      chartW,
+      xScale,
+      yScale,
+      chartData,
+      trendMode,
+      drawing,
+      getSvgCoords,
+      xToRatio,
+    ],
+  );
+
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent<SVGSVGElement>) => {
+      if (!trendMode) return;
+      const coords = getSvgCoords(e);
+      if (!coords) return;
+      const price = yToPrice(coords.y);
+      const ratio = xToRatio(coords.x);
+      setDrawing({
+        xRatio1: ratio,
+        y1: coords.y,
+        price1: price,
+        xRatio2: ratio,
+        y2: coords.y,
+      });
+    },
+    [trendMode, getSvgCoords, yToPrice, xToRatio],
+  );
+
+  const handleMouseUp = useCallback(
+    (e: React.MouseEvent<SVGSVGElement>) => {
+      if (!trendMode || !drawing) return;
+      const coords = getSvgCoords(e);
+      if (!coords) return;
+      const x1px = ratioToX(drawing.xRatio1);
+      const x2px = ratioToX(xToRatio(coords.x));
+      const dist = Math.sqrt((x2px - x1px) ** 2 + (coords.y - drawing.y1) ** 2);
+      if (dist > 10) {
+        const price2 = yToPrice(coords.y);
+        const ratio2 = xToRatio(coords.x);
+        setTrendLines((prev) => [
+          ...prev,
+          {
+            id: `tl-${Date.now()}`,
+            xRatio1: drawing.xRatio1,
+            xRatio2: ratio2,
+            price1: drawing.price1,
+            price2,
+          },
+        ]);
+      }
+      setDrawing(null);
+    },
+    [trendMode, drawing, getSvgCoords, yToPrice, xToRatio, ratioToX],
   );
 
   const handleMarkerClick = useCallback(
     (marker: ExtendedMarker, globalIdx: number) => {
+      if (trendMode) return;
       const start = Math.max(0, globalIdx - 35);
       const end = Math.min(totalN, globalIdx + 65);
       setZoomRange({ start, end });
       if (marker.event) setFocusedEvent(marker.event);
     },
-    [totalN],
+    [totalN, trendMode],
   );
 
   const handleResetZoom = useCallback(() => {
     setZoomRange(null);
     setFocusedEvent(null);
     setTooltip(null);
+  }, []);
+
+  const handleDeleteTrendLine = useCallback((id: string) => {
+    setTrendLines((prev) => prev.filter((l) => l.id !== id));
+    setHoveredLineId(null);
+  }, []);
+
+  const handleClearAllTrendLines = useCallback(() => {
+    setTrendLines([]);
+    setDrawing(null);
+    setHoveredLineId(null);
   }, []);
 
   // Stats strip uses FULL data last candle
@@ -287,6 +431,12 @@ export function ChartPanel({
 
   const lastCandle = fullLastCandle;
 
+  const chartCursor = trendMode
+    ? drawing
+      ? "crosshair"
+      : "cell"
+    : "crosshair";
+
   return (
     <div className="flex flex-col h-full">
       {/* Header strip */}
@@ -300,7 +450,9 @@ export function ChartPanel({
             </span>
             {lastCandle && (
               <span
-                className={`text-xs font-medium flex items-center gap-1 ${priceChange >= 0 ? "text-positive" : "text-negative"}`}
+                className={`text-xs font-medium flex items-center gap-1 ${
+                  priceChange >= 0 ? "text-positive" : "text-negative"
+                }`}
               >
                 {priceChange >= 0 ? (
                   <TrendingUp className="h-3.5 w-3.5" />
@@ -317,7 +469,7 @@ export function ChartPanel({
           </span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           {zoomRange && (
             <button
               type="button"
@@ -328,24 +480,102 @@ export function ChartPanel({
               ↩ Full View
             </button>
           )}
-          {(["1d", "1w", "1M"] as Timeframe[]).map((tf) => (
+
+          {/* Timeframe buttons */}
+          {TIMEFRAMES.map(({ value, label }) => (
             <button
               type="button"
-              key={tf}
-              data-ocid={`chart.${tf}.tab`}
-              onClick={() => onTimeframeChange(tf)}
+              key={value}
+              data-ocid={`chart.${value}.tab`}
+              onClick={() => onTimeframeChange(value)}
               className={`px-2.5 py-1 rounded text-xs font-mono font-medium transition-colors ${
-                timeframe === tf
+                timeframe === value
                   ? "bg-primary/15 text-gold border border-gold/40"
                   : "text-muted-foreground hover:text-foreground hover:bg-accent"
               }`}
             >
-              {tf.toUpperCase()}
+              {label}
             </button>
           ))}
+
+          {/* Separator */}
+          <div className="w-px h-4 bg-border mx-1" />
+
+          {/* Trend line toggle */}
+          <button
+            type="button"
+            title={
+              trendMode
+                ? "Sair do modo de linha de tendência"
+                : "Traçar linha de tendência"
+            }
+            onClick={() => {
+              setTrendMode((v) => !v);
+              setDrawing(null);
+            }}
+            className={`px-2.5 py-1 rounded text-xs font-mono font-medium transition-colors flex items-center gap-1 ${
+              trendMode
+                ? "bg-purple-500/20 text-purple-300 border border-purple-400/50"
+                : "text-muted-foreground hover:text-foreground hover:bg-accent"
+            }`}
+          >
+            <Minus className="h-3 w-3" />
+            <span className="hidden sm:inline">Trend</span>
+          </button>
+
+          {trendLines.length > 0 && (
+            <button
+              type="button"
+              title="Apagar todas as linhas de tendência"
+              onClick={handleClearAllTrendLines}
+              className="px-2 py-1 rounded text-xs font-mono text-muted-foreground hover:text-negative hover:bg-accent transition-colors"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+
+          {/* Fullscreen toggle */}
+          {onToggleFullscreen && (
+            <button
+              type="button"
+              title={
+                isFullscreen ? "Sair da tela cheia" : "Expandir em tela cheia"
+              }
+              onClick={onToggleFullscreen}
+              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            >
+              {isFullscreen ? (
+                <Minimize2 className="h-4 w-4" />
+              ) : (
+                <Maximize2 className="h-4 w-4" />
+              )}
+            </button>
+          )}
+
           <Activity className="h-3.5 w-3.5 text-muted-foreground ml-1" />
         </div>
       </div>
+
+      {/* Mode hint */}
+      {trendMode && (
+        <div
+          className="px-4 py-1.5 text-[10px] font-mono border-b border-border"
+          style={{ background: "oklch(0.18 0.04 280 / 0.5)", color: "#c4b5fd" }}
+        >
+          Modo de linha ativo — clique e arraste para traçar. Clique sobre uma
+          linha para remover.
+        </div>
+      )}
+      {!trendMode && trendLines.length > 0 && (
+        <div
+          className="px-4 py-1.5 text-[10px] font-mono border-b border-border"
+          style={{ background: "oklch(0.14 0.02 240 / 0.5)", color: "#9AA4B2" }}
+        >
+          {trendLines.length} linha{trendLines.length > 1 ? "s" : ""} de
+          tendência — clique sobre uma linha para remover, ou use o X para
+          apagar todas.
+        </div>
+      )}
 
       {/* Chart area */}
       <div
@@ -374,10 +604,15 @@ export function ChartPanel({
           width={dims.w}
           height={dims.h}
           onMouseMove={handleMouseMove}
-          onMouseLeave={() => setTooltip(null)}
+          onMouseDown={handleMouseDown}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={() => {
+            if (!trendMode) setTooltip(null);
+            if (drawing) setDrawing(null);
+          }}
           role="img"
           aria-label="BTC/USDT Candlestick Chart"
-          style={{ display: "block", cursor: "crosshair" }}
+          style={{ display: "block", cursor: chartCursor }}
         >
           <title>BTC/USDT Price Chart</title>
 
@@ -485,13 +720,12 @@ export function ChartPanel({
           {/* Event markers */}
           {markers.map((m) => {
             const x = xScale(m.index);
-            // Global index (before zoom offset)
             const globalIdx = zoomRange ? m.index + zoomRange.start : m.index;
             return (
               <g
                 key={`ev-${m.time}-${m.eventType}`}
                 tabIndex={0}
-                style={{ cursor: "pointer" }}
+                style={{ cursor: trendMode ? "crosshair" : "pointer" }}
                 onClick={() =>
                   handleMarkerClick(
                     zoomRange ? { ...m, index: globalIdx } : m,
@@ -524,7 +758,6 @@ export function ChartPanel({
                   height={6}
                   fill={m.color}
                 />
-                {/* Hit area */}
                 <rect
                   x={x - 8}
                   y={PAD.top}
@@ -537,8 +770,109 @@ export function ChartPanel({
             );
           })}
 
+          {/* Saved trend lines — projected from price/ratio space */}
+          {trendLines.map((line) => {
+            const x1 = ratioToX(line.xRatio1);
+            const x2 = ratioToX(line.xRatio2);
+            const y1 = yScale(line.price1);
+            const y2 = yScale(line.price2);
+            const isHovered = hoveredLineId === line.id;
+            return (
+              <g key={line.id}>
+                {/* Visible line */}
+                <line
+                  x1={x1}
+                  y1={y1}
+                  x2={x2}
+                  y2={y2}
+                  stroke={isHovered ? "#F87171" : C.trendLine}
+                  strokeWidth={isHovered ? 2 : 1.5}
+                  opacity={isHovered ? 1 : 0.85}
+                />
+                {/* Endpoints */}
+                <circle
+                  cx={x1}
+                  cy={y1}
+                  r={isHovered ? 5 : 4}
+                  fill={isHovered ? "#F87171" : C.trendLine}
+                  opacity={0.8}
+                />
+                <circle
+                  cx={x2}
+                  cy={y2}
+                  r={isHovered ? 5 : 4}
+                  fill={isHovered ? "#F87171" : C.trendLine}
+                  opacity={0.8}
+                />
+                {/* Price labels */}
+                <text
+                  x={x1 + 6}
+                  y={y1 - 5}
+                  fill={C.trendLine}
+                  fontSize={9}
+                  fontFamily="JetBrains Mono, monospace"
+                >
+                  {formatPrice(line.price1)}
+                </text>
+                <text
+                  x={x2 + 6}
+                  y={y2 - 5}
+                  fill={C.trendLine}
+                  fontSize={9}
+                  fontFamily="JetBrains Mono, monospace"
+                >
+                  {formatPrice(line.price2)}
+                </text>
+                {/* Wide hit area — always clickable to delete */}
+                <line
+                  x1={x1}
+                  y1={y1}
+                  x2={x2}
+                  y2={y2}
+                  stroke="transparent"
+                  strokeWidth={14}
+                  style={{ cursor: "pointer" }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteTrendLine(line.id);
+                  }}
+                  onMouseEnter={() => setHoveredLineId(line.id)}
+                  onMouseLeave={() => setHoveredLineId(null)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ")
+                      handleDeleteTrendLine(line.id);
+                  }}
+                />
+              </g>
+            );
+          })}
+
+          {/* Drawing preview line */}
+          {drawing && (
+            <>
+              <line
+                x1={ratioToX(drawing.xRatio1)}
+                y1={drawing.y1}
+                x2={ratioToX(drawing.xRatio2)}
+                y2={drawing.y2}
+                stroke={C.trendLine}
+                strokeWidth={1.5}
+                strokeDasharray="6 3"
+                opacity={0.7}
+              />
+              <circle
+                cx={ratioToX(drawing.xRatio1)}
+                cy={drawing.y1}
+                r={3}
+                fill={C.trendLine}
+              />
+            </>
+          )}
+
           {/* Crosshair */}
-          {tooltip && (
+          {tooltip && !drawing && (
             <>
               <line
                 x1={tooltip.x}
@@ -575,7 +909,7 @@ export function ChartPanel({
         </svg>
 
         {/* Tooltip */}
-        {tooltip && (
+        {tooltip && !drawing && (
           <div
             className="absolute pointer-events-none z-20 px-2.5 py-2 rounded text-xs font-mono border border-border"
             style={{
@@ -621,7 +955,6 @@ export function ChartPanel({
             }}
             data-ocid="chart.event.card"
           >
-            {/* Close button */}
             <button
               type="button"
               onClick={() => setFocusedEvent(null)}
@@ -632,7 +965,6 @@ export function ChartPanel({
               <X className="h-3.5 w-3.5" />
             </button>
 
-            {/* Event type badge */}
             <span
               className="inline-block text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded mb-2"
               style={{
@@ -644,17 +976,12 @@ export function ChartPanel({
               {focusedEvent.eventType as string}
             </span>
 
-            {/* Title */}
             <div className="font-semibold text-sm text-foreground leading-tight mb-1 pr-5">
               {focusedEvent.title}
             </div>
-
-            {/* Date */}
             <div className="text-[10px] text-muted-foreground font-mono mb-2">
               {formatEventDate(focusedEvent.timestamp)}
             </div>
-
-            {/* Description */}
             <p
               className="text-xs text-muted-foreground leading-relaxed mb-2"
               style={{
@@ -666,8 +993,6 @@ export function ChartPanel({
             >
               {focusedEvent.description}
             </p>
-
-            {/* Importance stars */}
             <div className="flex items-center gap-0.5">
               {[1, 2, 3, 4, 5].map((starNum) => (
                 <Star
@@ -720,6 +1045,15 @@ export function ChartPanel({
             />
             Macro
           </span>
+          {trendLines.length > 0 && (
+            <span className="flex items-center gap-1">
+              <span
+                className="inline-block w-6 border-t"
+                style={{ borderColor: C.trendLine }}
+              />
+              Trend ({trendLines.length})
+            </span>
+          )}
         </div>
       </div>
 

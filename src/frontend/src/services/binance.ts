@@ -8,15 +8,46 @@ function msToDateString(ms: number): string {
   return `${y}-${m}-${day}`;
 }
 
+function msToDateTimeString(ms: number): string {
+  const d = new Date(ms);
+  const y = d.getUTCFullYear();
+  const mo = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  const h = String(d.getUTCHours()).padStart(2, "0");
+  const min = String(d.getUTCMinutes()).padStart(2, "0");
+  return `${y}-${mo}-${day} ${h}:${min}`;
+}
+
 async function fetchBinance(interval: Timeframe): Promise<OHLCVCandle[]> {
-  const limit = interval === "1d" ? 1000 : interval === "1w" ? 520 : 120;
-  const url = `https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${interval}&limit=${limit}`;
+  // Map Timeframe to Binance interval string and limit
+  const binanceInterval =
+    interval === "1h"
+      ? "1h"
+      : interval === "4h"
+        ? "4h"
+        : interval === "1d"
+          ? "1d"
+          : interval === "1w"
+            ? "1w"
+            : "1M";
+  const limit =
+    interval === "1h"
+      ? 500
+      : interval === "4h"
+        ? 500
+        : interval === "1d"
+          ? 1000
+          : interval === "1w"
+            ? 520
+            : 120;
+  const url = `https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=${binanceInterval}&limit=${limit}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Binance ${res.status}`);
   const raw: [number, string, string, string, string, string][] =
     await res.json();
+  const useDateTime = interval === "1h" || interval === "4h";
   return raw.map((r) => ({
-    time: msToDateString(r[0]),
+    time: useDateTime ? msToDateTimeString(r[0]) : msToDateString(r[0]),
     open: Number.parseFloat(r[1]),
     high: Number.parseFloat(r[2]),
     low: Number.parseFloat(r[3]),
@@ -27,12 +58,23 @@ async function fetchBinance(interval: Timeframe): Promise<OHLCVCandle[]> {
 }
 
 async function fetchCryptoCompare(interval: Timeframe): Promise<OHLCVCandle[]> {
-  const endpoint =
-    interval === "1d"
-      ? "https://min-api.cryptocompare.com/data/v2/histoday?fsym=BTC&tsym=USD&limit=2000"
-      : interval === "1w"
-        ? "https://min-api.cryptocompare.com/data/v2/histoday?fsym=BTC&tsym=USD&limit=2000&aggregate=7"
-        : "https://min-api.cryptocompare.com/data/v2/histoday?fsym=BTC&tsym=USD&limit=2000&aggregate=30";
+  let endpoint: string;
+  if (interval === "1h") {
+    endpoint =
+      "https://min-api.cryptocompare.com/data/v2/histohour?fsym=BTC&tsym=USD&limit=500";
+  } else if (interval === "4h") {
+    endpoint =
+      "https://min-api.cryptocompare.com/data/v2/histohour?fsym=BTC&tsym=USD&limit=500&aggregate=4";
+  } else if (interval === "1d") {
+    endpoint =
+      "https://min-api.cryptocompare.com/data/v2/histoday?fsym=BTC&tsym=USD&limit=2000";
+  } else if (interval === "1w") {
+    endpoint =
+      "https://min-api.cryptocompare.com/data/v2/histoday?fsym=BTC&tsym=USD&limit=2000&aggregate=7";
+  } else {
+    endpoint =
+      "https://min-api.cryptocompare.com/data/v2/histoday?fsym=BTC&tsym=USD&limit=2000&aggregate=30";
+  }
   const res = await fetch(endpoint);
   if (!res.ok) throw new Error(`CryptoCompare ${res.status}`);
   const json = await res.json();
@@ -44,10 +86,13 @@ async function fetchCryptoCompare(interval: Timeframe): Promise<OHLCVCandle[]> {
     close: number;
     volumefrom: number;
   }[] = json?.Data?.Data ?? [];
+  const useDateTime = interval === "1h" || interval === "4h";
   return data
     .filter((r) => r.close > 0)
     .map((r) => ({
-      time: msToDateString(r.time * 1000),
+      time: useDateTime
+        ? msToDateTimeString(r.time * 1000)
+        : msToDateString(r.time * 1000),
       open: r.open,
       high: r.high,
       low: r.low,
