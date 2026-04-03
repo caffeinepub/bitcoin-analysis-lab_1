@@ -139,48 +139,7 @@ interface DailyAnalysis extends TrendAnalysis {
 }
 
 // ─── Fallback data ────────────────────────────────────────────────────────────
-const FALLBACK_NEWS: NewsItem[] = [
-  {
-    id: "fb1",
-    title: "Bitcoin consolidates above $80K as market awaits Fed signals",
-    body: "Bitcoin continues to hold support above the $80,000 psychological level as traders await key Federal Reserve communication on interest rates.",
-    source: "CoinDesk",
-    publishedOn: Math.floor(Date.now() / 1000) - 3600,
-    url: "https://coindesk.com",
-  },
-  {
-    id: "fb2",
-    title: "Ethereum upgrade timeline: what developers expect in 2026",
-    body: "Core Ethereum developers outline the roadmap for upcoming protocol upgrades, focusing on scalability improvements and reduced gas fees.",
-    source: "CoinTelegraph",
-    publishedOn: Math.floor(Date.now() / 1000) - 7200,
-    url: "https://cointelegraph.com",
-  },
-  {
-    id: "fb3",
-    title: "Institutional BTC demand remains elevated — on-chain data",
-    body: "On-chain analytics reveal continued accumulation by large wallet addresses, suggesting institutional appetite for Bitcoin remains strong.",
-    source: "Glassnode",
-    publishedOn: Math.floor(Date.now() / 1000) - 10800,
-    url: "https://glassnode.com",
-  },
-  {
-    id: "fb4",
-    title: "Crypto market cap crosses $3T milestone amid macro calm",
-    body: "The total cryptocurrency market capitalization has crossed $3 trillion for the first time since the last bull cycle peak.",
-    source: "CoinGecko",
-    publishedOn: Math.floor(Date.now() / 1000) - 14400,
-    url: "https://coingecko.com",
-  },
-  {
-    id: "fb5",
-    title: "BTC dominance holds at 58% as altcoins underperform",
-    body: "Bitcoin's market dominance continues to hold near multi-year highs as the broader altcoin market struggles to attract fresh capital.",
-    source: "CryptoCompare",
-    publishedOn: Math.floor(Date.now() / 1000) - 18000,
-    url: "https://cryptocompare.com",
-  },
-];
+// No static fallback news — we use stale cache or show real error state
 
 const FALLBACK_ASSETS: Asset[] = [
   {
@@ -280,60 +239,186 @@ function analyzeTrend(candles: Candle[]): TrendAnalysis {
 }
 
 // ─── Data hooks ───────────────────────────────────────────────────────────────
+const NEWS_CACHE_KEY = "btc_lab_news_cache";
+const NEWS_CACHE_TTL = 60 * 60 * 1000; // 1 hour in ms
+
+// Fetch from CryptoCompare
+async function fetchFromCryptoCompare(): Promise<NewsItem[]> {
+  const res = await fetch(
+    "https://min-api.cryptocompare.com/data/v2/news/?lang=EN&categories=BTC,Market&sortOrder=latest",
+    { signal: AbortSignal.timeout(8000) },
+  );
+  if (!res.ok) throw new Error(`CryptoCompare ${res.status}`);
+  const json = await res.json();
+  return (json.Data ?? []).slice(0, 20).map(
+    (d: {
+      id: string;
+      title: string;
+      body: string;
+      source_info: { name: string };
+      published_on: number;
+      url: string;
+    }) => ({
+      id: String(d.id),
+      title: d.title,
+      body: d.body?.slice(0, 120) ?? "",
+      source: d.source_info?.name ?? "CryptoCompare",
+      publishedOn: d.published_on,
+      url: d.url,
+    }),
+  );
+}
+
+// Fetch from CoinGecko news (free, no API key needed)
+async function fetchFromCoinGecko(): Promise<NewsItem[]> {
+  const res = await fetch("https://api.coingecko.com/api/v3/news?per_page=20", {
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!res.ok) throw new Error(`CoinGecko ${res.status}`);
+  const json = await res.json();
+  const list: {
+    id?: string;
+    title?: string;
+    description?: string;
+    news_site?: string;
+    published_at?: string;
+    url?: string;
+  }[] = Array.isArray(json.data) ? json.data : Array.isArray(json) ? json : [];
+  return list.slice(0, 20).map((d, i) => ({
+    id: d.id ? String(d.id) : `cg-${i}`,
+    title: d.title ?? "",
+    body: d.description?.slice(0, 120) ?? "",
+    source: d.news_site ?? "CoinGecko",
+    publishedOn: d.published_at
+      ? Math.floor(new Date(d.published_at).getTime() / 1000)
+      : Math.floor(Date.now() / 1000),
+    url: d.url ?? "https://coingecko.com",
+  }));
+}
+
+function filterByRecency(items: NewsItem[]): NewsItem[] {
+  items.sort((a, b) => b.publishedOn - a.publishedOn);
+  const now = Math.floor(Date.now() / 1000);
+  let filtered = items.filter((item) => item.publishedOn >= now - 24 * 3600);
+  if (filtered.length < 3)
+    filtered = items.filter((item) => item.publishedOn >= now - 48 * 3600);
+  if (filtered.length < 3)
+    filtered = items.filter((item) => item.publishedOn >= now - 72 * 3600);
+  return filtered;
+}
+
 function useNewsItems() {
   const [data, setData] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [usingFallback, setUsingFallback] = useState(false);
+  const [lastFetched, setLastFetched] = useState<number | null>(null);
+  const [fetchError, setFetchError] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(
-        "https://min-api.cryptocompare.com/data/v2/news/?lang=EN&categories=BTC,Market",
-      );
-      if (!res.ok) throw new Error(`${res.status}`);
-      const json = await res.json();
-      const items: NewsItem[] = (json.Data ?? []).slice(0, 10).map(
-        (d: {
-          id: string;
-          title: string;
-          body: string;
-          source_info: { name: string };
-          published_on: number;
-          url: string;
-        }) => ({
-          id: String(d.id),
-          title: d.title,
-          body: d.body?.slice(0, 100) ?? "",
-          source: d.source_info?.name ?? "CryptoCompare",
-          publishedOn: d.published_on,
-          url: d.url,
-        }),
-      );
-      const now = Math.floor(Date.now() / 1000);
-      const cutoff48h = now - 48 * 3600;
-      const cutoff72h = now - 72 * 3600;
-
-      let filtered = items.filter((item) => item.publishedOn >= cutoff48h);
-      if (filtered.length < 3) {
-        filtered = items.filter((item) => item.publishedOn >= cutoff72h);
+  const load = useCallback(async (forceRefresh = false) => {
+    // Check localStorage cache first (unless forcing refresh)
+    if (!forceRefresh) {
+      try {
+        const cached = localStorage.getItem(NEWS_CACHE_KEY);
+        if (cached) {
+          const { items, fetchedAt } = JSON.parse(cached) as {
+            items: NewsItem[];
+            fetchedAt: number;
+          };
+          if (Date.now() - fetchedAt < NEWS_CACHE_TTL && items.length > 0) {
+            setData(items);
+            setUsingFallback(false);
+            setFetchError(false);
+            setLastFetched(fetchedAt);
+            setLoading(false);
+            return;
+          }
+        }
+      } catch {
+        // ignore parse errors
       }
-      if (filtered.length === 0) throw new Error("no recent news");
-      setData(filtered);
-      setUsingFallback(false);
-    } catch {
-      setData(FALLBACK_NEWS);
-      setUsingFallback(true);
-    } finally {
-      setLoading(false);
     }
+
+    setLoading(true);
+    setFetchError(false);
+
+    let items: NewsItem[] = [];
+
+    // Try CryptoCompare first
+    try {
+      items = await fetchFromCryptoCompare();
+    } catch {
+      // Try CoinGecko as backup
+      try {
+        items = await fetchFromCoinGecko();
+      } catch {
+        // Both failed — try stale cache before giving up
+        try {
+          const cached = localStorage.getItem(NEWS_CACHE_KEY);
+          if (cached) {
+            const { items: staleItems, fetchedAt } = JSON.parse(cached) as {
+              items: NewsItem[];
+              fetchedAt: number;
+            };
+            if (staleItems.length > 0) {
+              setData(staleItems);
+              setLastFetched(fetchedAt);
+              setUsingFallback(true);
+              setFetchError(false);
+              setLoading(false);
+              return;
+            }
+          }
+        } catch {
+          /* ignore */
+        }
+        setData([]);
+        setUsingFallback(false);
+        setFetchError(true);
+        setLoading(false);
+        return;
+      }
+    }
+
+    const filtered = filterByRecency(items);
+    if (filtered.length === 0) {
+      // No recent items — use unfiltered recent items (last 7d)
+      const fallbackFiltered = items.filter(
+        (i) => i.publishedOn >= Math.floor(Date.now() / 1000) - 7 * 24 * 3600,
+      );
+      if (fallbackFiltered.length === 0) {
+        setFetchError(true);
+        setLoading(false);
+        return;
+      }
+      items = fallbackFiltered;
+    } else {
+      items = filtered;
+    }
+
+    const fetchedAt = Date.now();
+    try {
+      localStorage.setItem(
+        NEWS_CACHE_KEY,
+        JSON.stringify({ items, fetchedAt }),
+      );
+    } catch {
+      /* ignore */
+    }
+
+    setData(items);
+    setLastFetched(fetchedAt);
+    setUsingFallback(false);
+    setFetchError(false);
+    setLoading(false);
   }, []);
 
   useEffect(() => {
-    load();
+    load(false);
   }, [load]);
 
-  return { data, loading, usingFallback, refresh: load };
+  const refresh = useCallback(() => load(true), [load]);
+
+  return { data, loading, usingFallback, lastFetched, refresh, fetchError };
 }
 
 function useYesterdayCandle() {
@@ -705,7 +790,12 @@ function ProbBar({
 
 // ─── Section: News Feed ───────────────────────────────────────────────────────
 function NewsFeed() {
-  const { data, loading, usingFallback, refresh } = useNewsItems();
+  const { data, loading, usingFallback, lastFetched, refresh, fetchError } =
+    useNewsItems();
+
+  const cacheLabel = lastFetched
+    ? `Atualizado ${new Date(lastFetched).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`
+    : null;
 
   return (
     <Card
@@ -723,17 +813,27 @@ function NewsFeed() {
             {usingFallback && (
               <Badge
                 variant="outline"
-                className="text-[10px] text-muted-foreground"
+                className="text-[10px] text-yellow-500/80"
               >
-                Cached
+                Cache antigo
               </Badge>
+            )}
+            {fetchError && (
+              <Badge variant="outline" className="text-[10px] text-red-400/80">
+                Sem dados
+              </Badge>
+            )}
+            {cacheLabel && !usingFallback && !fetchError && (
+              <span className="text-[10px] text-muted-foreground">
+                {cacheLabel}
+              </span>
             )}
             <button
               type="button"
               onClick={refresh}
               className="p-1 rounded hover:bg-accent transition-colors"
               data-ocid="news.feed.button"
-              title="Refresh news"
+              title="Forçar atualização"
             >
               <RefreshCw className="h-3.5 w-3.5 text-muted-foreground" />
             </button>
@@ -741,52 +841,69 @@ function NewsFeed() {
         </div>
       </CardHeader>
       <CardContent className="flex-1 overflow-y-auto space-y-3 pr-1">
-        {loading
-          ? SKEL_5.map((sk) => (
-              <div
-                key={sk}
-                className="space-y-2 pb-3 border-b border-border"
-                data-ocid="news.feed.loading_state"
-              >
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-3 w-5/6" />
-                <Skeleton className="h-3 w-2/3" />
-              </div>
-            ))
-          : data.map((item, idx) => (
-              <a
-                key={item.id}
-                href={item.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                data-ocid={`news.feed.item.${idx + 1}`}
-                className="block group pb-3 border-b border-border last:border-0 last:pb-0 hover:bg-accent/30 -mx-1 px-1 rounded transition-colors"
-              >
-                <div className="flex items-start justify-between gap-2 mb-1">
-                  <p className="text-xs font-semibold text-foreground group-hover:text-gold line-clamp-2 transition-colors leading-relaxed">
-                    {item.title}
-                  </p>
-                  <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity" />
-                </div>
-                <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed mb-1.5">
-                  {item.body}
+        {loading ? (
+          SKEL_5.map((sk) => (
+            <div
+              key={sk}
+              className="space-y-2 pb-3 border-b border-border"
+              data-ocid="news.feed.loading_state"
+            >
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-3 w-5/6" />
+              <Skeleton className="h-3 w-2/3" />
+            </div>
+          ))
+        ) : fetchError ? (
+          <div className="flex flex-col items-center justify-center h-32 gap-3 text-center">
+            <AlertTriangle className="h-8 w-8 text-muted-foreground/50" />
+            <p className="text-xs text-muted-foreground">
+              Não foi possível carregar as notícias no momento.
+            </p>
+            <button
+              type="button"
+              onClick={refresh}
+              className="text-xs text-gold underline hover:no-underline"
+              style={{ color: C_GOLD }}
+            >
+              Tentar novamente
+            </button>
+          </div>
+        ) : (
+          data.map((item, idx) => (
+            <a
+              key={item.id}
+              href={item.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              data-ocid={`news.feed.item.${idx + 1}`}
+              className="block group pb-3 border-b border-border last:border-0 last:pb-0 hover:bg-accent/30 -mx-1 px-1 rounded transition-colors"
+            >
+              <div className="flex items-start justify-between gap-2 mb-1">
+                <p className="text-xs font-semibold text-foreground group-hover:text-gold line-clamp-2 transition-colors leading-relaxed">
+                  {item.title}
                 </p>
-                <div className="flex items-center gap-2">
-                  <span
-                    className="text-[10px] font-semibold"
-                    style={{ color: C_GOLD }}
-                  >
-                    {item.source}
-                  </span>
-                  <span className="text-[10px] text-muted-foreground/70 font-mono">
-                    {fmtAbsDate(item.publishedOn)}
-                  </span>
-                  <span className="text-[10px] text-muted-foreground">
-                    {relTime(item.publishedOn)}
-                  </span>
-                </div>
-              </a>
-            ))}
+                <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+              </div>
+              <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed mb-1.5">
+                {item.body}
+              </p>
+              <div className="flex items-center gap-2">
+                <span
+                  className="text-[10px] font-semibold"
+                  style={{ color: C_GOLD }}
+                >
+                  {item.source}
+                </span>
+                <span className="text-[10px] text-muted-foreground/70 font-mono">
+                  {fmtAbsDate(item.publishedOn)}
+                </span>
+                <span className="text-[10px] text-muted-foreground">
+                  {relTime(item.publishedOn)}
+                </span>
+              </div>
+            </a>
+          ))
+        )}
       </CardContent>
     </Card>
   );
