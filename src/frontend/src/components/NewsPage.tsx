@@ -80,6 +80,7 @@ interface NewsItem {
   source: string;
   publishedOn: number;
   url: string;
+  sentiment?: "bullish" | "bearish" | "neutral";
 }
 
 interface Ticker24h {
@@ -242,7 +243,62 @@ function analyzeTrend(candles: Candle[]): TrendAnalysis {
 const NEWS_CACHE_KEY = "btc_lab_news_cache";
 const NEWS_CACHE_TTL = 60 * 60 * 1000; // 1 hour in ms
 
-// Fetch from CryptoCompare
+// ─── Fetch from CryptoCompare — primary source (multiple categories) ──────────
+async function fetchFromCryptoComparePrimary(): Promise<NewsItem[]> {
+  // Fetch BTC+Market and Regulation+Altcoin categories in parallel for more coverage
+  const [res1, res2] = await Promise.allSettled([
+    fetch(
+      "https://min-api.cryptocompare.com/data/v2/news/?lang=EN&categories=BTC,Market&sortOrder=latest",
+      { signal: AbortSignal.timeout(10000) },
+    ),
+    fetch(
+      "https://min-api.cryptocompare.com/data/v2/news/?lang=EN&categories=Trading,Blockchain&sortOrder=latest",
+      { signal: AbortSignal.timeout(10000) },
+    ),
+  ]);
+
+  type CCItem = {
+    id: string;
+    title: string;
+    body: string;
+    source_info: { name: string };
+    published_on: number;
+    url: string;
+  };
+
+  const combined: CCItem[] = [];
+  for (const result of [res1, res2]) {
+    if (result.status === "fulfilled" && result.value.ok) {
+      const json = await result.value.json();
+      if (Array.isArray(json.Data)) combined.push(...json.Data);
+    }
+  }
+
+  if (combined.length === 0)
+    throw new Error("CryptoCompare primary: no results");
+
+  // Deduplicate by id
+  const seen = new Set<string>();
+  const deduped = combined.filter((item) => {
+    if (seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
+
+  deduped.sort((a, b) => b.published_on - a.published_on);
+
+  return deduped.slice(0, 30).map((d) => ({
+    id: String(d.id),
+    title: d.title,
+    body: d.body?.slice(0, 120) ?? "",
+    source: d.source_info?.name ?? "CryptoCompare",
+    publishedOn: d.published_on,
+    url: d.url,
+    sentiment: undefined,
+  }));
+}
+
+// Fetch from CryptoCompare (fallback 1)
 async function fetchFromCryptoCompare(): Promise<NewsItem[]> {
   const res = await fetch(
     "https://min-api.cryptocompare.com/data/v2/news/?lang=EN&categories=BTC,Market&sortOrder=latest",
@@ -269,7 +325,7 @@ async function fetchFromCryptoCompare(): Promise<NewsItem[]> {
   );
 }
 
-// Fetch from CoinGecko news (free, no API key needed)
+// Fetch from CoinGecko news (fallback 2, no API key needed)
 async function fetchFromCoinGecko(): Promise<NewsItem[]> {
   const res = await fetch("https://api.coingecko.com/api/v3/news?per_page=20", {
     signal: AbortSignal.timeout(8000),
@@ -343,39 +399,42 @@ function useNewsItems() {
 
     let items: NewsItem[] = [];
 
-    // Try CryptoCompare first
+    // Try CryptoCompare primary (multiple categories), then single-category CC, then CoinGecko
     try {
-      items = await fetchFromCryptoCompare();
+      items = await fetchFromCryptoComparePrimary();
     } catch {
-      // Try CoinGecko as backup
       try {
-        items = await fetchFromCoinGecko();
+        items = await fetchFromCryptoCompare();
       } catch {
-        // Both failed — try stale cache before giving up
         try {
-          const cached = localStorage.getItem(NEWS_CACHE_KEY);
-          if (cached) {
-            const { items: staleItems, fetchedAt } = JSON.parse(cached) as {
-              items: NewsItem[];
-              fetchedAt: number;
-            };
-            if (staleItems.length > 0) {
-              setData(staleItems);
-              setLastFetched(fetchedAt);
-              setUsingFallback(true);
-              setFetchError(false);
-              setLoading(false);
-              return;
-            }
-          }
+          items = await fetchFromCoinGecko();
         } catch {
-          /* ignore */
+          // All three failed — try stale cache before giving up
+          try {
+            const cached = localStorage.getItem(NEWS_CACHE_KEY);
+            if (cached) {
+              const { items: staleItems, fetchedAt } = JSON.parse(cached) as {
+                items: NewsItem[];
+                fetchedAt: number;
+              };
+              if (staleItems.length > 0) {
+                setData(staleItems);
+                setLastFetched(fetchedAt);
+                setUsingFallback(true);
+                setFetchError(false);
+                setLoading(false);
+                return;
+              }
+            }
+          } catch {
+            /* ignore */
+          }
+          setData([]);
+          setUsingFallback(false);
+          setFetchError(true);
+          setLoading(false);
+          return;
         }
-        setData([]);
-        setUsingFallback(false);
-        setFetchError(true);
-        setLoading(false);
-        return;
       }
     }
 
@@ -887,7 +946,7 @@ function NewsFeed() {
               <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed mb-1.5">
                 {item.body}
               </p>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span
                   className="text-[10px] font-semibold"
                   style={{ color: C_GOLD }}
@@ -900,6 +959,22 @@ function NewsFeed() {
                 <span className="text-[10px] text-muted-foreground">
                   {relTime(item.publishedOn)}
                 </span>
+                {item.sentiment === "bullish" && (
+                  <span
+                    className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
+                    style={{ color: C_GREEN, background: `${C_GREEN}22` }}
+                  >
+                    🐂 Bullish
+                  </span>
+                )}
+                {item.sentiment === "bearish" && (
+                  <span
+                    className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
+                    style={{ color: C_RED, background: `${C_RED}22` }}
+                  >
+                    🐻 Bearish
+                  </span>
+                )}
               </div>
             </a>
           ))
